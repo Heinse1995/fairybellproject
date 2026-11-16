@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#176b55">
+  <title>Mijn Afstreepkaart</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+    integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin="">
+  <style>
+    :root { font-family: system-ui, -apple-system, sans-serif; color:#17231f; background:#f4f7f5; }
+    * { box-sizing:border-box; }
+    body { margin:0; }
+    header { background:#176b55; color:white; padding:14px 16px; display:flex; justify-content:space-between; align-items:center; gap:12px; }
+    header h1 { font-size:19px; margin:0; }
+    header small { opacity:.85; }
+    main { display:grid; grid-template-columns: minmax(260px, 340px) 1fr; height:calc(100dvh - 58px); }
+    aside { padding:14px; overflow:auto; background:white; border-right:1px solid #dce5df; }
+    #map { height:100%; min-height:320px; background:#e8eee9; }
+    .stats { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-bottom:14px; }
+    .stat { background:#f0f5f2; border-radius:12px; padding:10px; }
+    .stat strong { display:block; font-size:22px; }
+    .stat span { color:#58665f; font-size:12px; }
+    .hint { font-size:13px; color:#58665f; line-height:1.45; }
+    .toolbar { display:flex; gap:8px; flex-wrap:wrap; margin:12px 0; }
+    button { border:0; border-radius:10px; padding:10px 12px; font:inherit; font-weight:600; cursor:pointer; }
+    .primary { background:#176b55; color:white; }
+    .secondary { background:#eaf1ed; color:#244438; }
+    .danger { background:#fff0ee; color:#a33125; }
+    input, select { width:100%; border:1px solid #cbd8d0; border-radius:10px; padding:11px; font:inherit; background:white; }
+    label { display:block; font-size:13px; font-weight:650; margin:10px 0 5px; }
+    .location { border:1px solid #e0e8e3; border-radius:12px; padding:10px; margin:8px 0; }
+    .location-top { display:flex; justify-content:space-between; gap:8px; align-items:center; }
+    .location-name { font-weight:650; overflow-wrap:anywhere; }
+    .location-meta { color:#64736b; font-size:12px; margin-top:4px; }
+    .pill { font-size:12px; border-radius:20px; padding:4px 8px; white-space:nowrap; }
+    .done { background:#e0f4e8; color:#176b3a; }
+    .todo { background:#fff0ee; color:#a33125; }
+    .empty { color:#66756d; font-size:13px; padding:12px 2px; }
+    .marker-icon { display:flex; align-items:center; justify-content:center; width:30px; height:30px; border-radius:50%; border:2px solid white; box-shadow:0 1px 5px #0005; color:white; font-size:19px; font-weight:800; }
+    .marker-done { background:#19864b; }
+    .marker-todo { background:#c83b32; }
+    .leaflet-popup-content button { margin:4px 3px 0 0; padding:7px 9px; font-size:12px; }
+    footer { font-size:11px; color:#718078; margin-top:18px; line-height:1.4; }
+    @media(max-width:720px) {
+      header { padding:12px 14px; }
+      main { display:flex; flex-direction:column; height:calc(100dvh - 54px); }
+      #map { order:1; flex:1; min-height:42vh; }
+      aside { order:2; height:42%; border-right:0; border-top:1px solid #dce5df; }
+      .stats { margin-bottom:8px; }
+      .hint { display:none; }
+    }
+  </style>
+</head>
+<body>
+<header>
+  <div><h1>Mijn Afstreepkaart</h1><small>Jouw persoonlijke kaart van Nederland</small></div>
+  <button class="secondary" id="locateBtn" title="Mijn locatie">◎</button>
+</header>
+<main>
+  <aside>
+    <div class="stats">
+      <div class="stat"><strong id="totalCount">0</strong><span>Locaties totaal</span></div>
+      <div class="stat"><strong id="doneCount">0</strong><span>Bezocht</span></div>
+    </div>
+    <p class="hint">Tik op de kaart om een locatie toe te voegen. Tik op een markering om deze af te vinken of te bewerken.</p>
+    <div class="toolbar">
+      <button class="primary" id="addModeBtn">＋ Locatie toevoegen</button>
+      <button class="secondary" id="exportBtn">Back-up</button>
+      <button class="secondary" id="importBtn">Importeren</button>
+      <input id="importFile" type="file" accept="application/json" hidden>
+    </div>
+    <label for="filter">Toon locaties</label>
+    <select id="filter">
+      <option value="all">Alles</option>
+      <option value="todo">Nog te bezoeken</option>
+      <option value="done">Bezocht</option>
+    </select>
+    <label for="search">Zoek in mijn locaties</label>
+    <input id="search" placeholder="Bijv. Dokkum of strand...">
+    <div id="locationList"></div>
+    <footer>Je locaties worden op dit apparaat opgeslagen. De kaartachtergrond komt van OpenStreetMap en heeft internet nodig. Maak af en toe een back-up.</footer>
+  </aside>
+  <div id="map" aria-label="Kaart van Nederland"></div>
+</main>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
+  integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+<script>
+(() => {
+  const STORAGE_KEY = 'mijn-afstreepkaart-v1';
+  let locations = [];
+  let addMode = false;
+  const map = L.map('map').setView([52.2, 5.3], 7);
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 19, attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
+  }).addTo(map);
+  const markerLayer = L.layerGroup().addTo(map);
+  const $ = id => document.getElementById(id);
+  try { locations = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]'); } catch { locations = []; }
+
+  function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(locations)); render(); }
+  function markerIcon(done) {
+    return L.divIcon({ className:'', html:`<div class="marker-icon ${done?'marker-done':'marker-todo'}">${done?'✓':'×'}</div>`, iconSize:[30,30], iconAnchor:[15,15] });
+  }
+  function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+  function toggleDone(id) {
+    const item = locations.find(x => x.id === id);
+    if (item) { item.done = !item.done; save(); }
+  }
+  function editLocation(id) {
+    const item = locations.find(x => x.id === id);
+    if (!item) return;
+    const name = prompt('Naam van de locatie:', item.name);
+    if (name === null) return;
+    if (!name.trim()) { alert('Vul een naam in.'); return; }
+    item.name = name.trim();
+    const note = prompt('Notitie (optioneel):', item.note || '');
+    if (note !== null) item.note = note.trim();
+    save();
+  }
+  function deleteLocation(id) {
+    if (!confirm('Deze locatie verwijderen?')) return;
+    locations = locations.filter(x => x.id !== id); save();
+  }
+  function addLocation(lat, lng) {
+    const name = prompt('Hoe heet deze locatie?');
+    if (!name || !name.trim()) return;
+    const note = prompt('Notitie (optioneel):') || '';
+    locations.push({ id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random())), name:name.trim(), note:note.trim(), lat, lng, done:false, created:new Date().toISOString() });
+    save();
+  }
+  function render() {
+    $('totalCount').textContent = locations.length;
+    $('doneCount').textContent = locations.filter(x=>x.done).length;
+    markerLayer.clearLayers();
+    locations.forEach(item => {
+      const marker = L.marker([item.lat,item.lng], {icon:markerIcon(item.done)}).addTo(markerLayer);
+      marker.bindPopup(`<strong>${escapeHtml(item.name)}</strong>${item.note?`<br>${escapeHtml(item.note)}`:''}<br><button class="primary" onclick="window.afToggle('${item.id}')">${item.done?'↶ Ongedaan maken':'✓ Afvinken als bezocht'}</button><button class="secondary" onclick="window.afEdit('${item.id}')">Bewerken</button><button class="danger" onclick="window.afDelete('${item.id}')">Verwijderen</button>`);
+    });
+    const q = $('search').value.toLowerCase();
+    const filter = $('filter').value;
+    const shown = locations.filter(x => (filter==='all' || (filter==='done' ? x.done : !x.done)) && (x.name.toLowerCase().includes(q) || (x.note||'').toLowerCase().includes(q)));
+    $('locationList').innerHTML = shown.length ? shown.map(x => `<div class="location"><div class="location-top"><span class="location-name">${escapeHtml(x.name)}</span><span class="pill ${x.done?'done':'todo'}">${x.done?'Bezocht':'Nog te gaan'}</span></div><div class="location-meta">${x.note?escapeHtml(x.note)+' · ':''}${x.lat.toFixed(4)}, ${x.lng.toFixed(4)}</div><div class="toolbar"><button class="secondary" onclick="window.afFocus('${x.id}')">Op kaart</button><button class="secondary" onclick="window.afToggle('${x.id}')">${x.done?'Ongedaan':'Afvinken'}</button></div></div>`).join('') : '<div class="empty">Nog geen locaties gevonden. Tik op de kaart om je eerste locatie toe te voegen.</div>';
+  }
+  window.afToggle = toggleDone;
+  window.afEdit = editLocation;
+  window.afDelete = deleteLocation;
+  window.afFocus = id => { const x=locations.find(y=>y.id===id); if(x){ map.setView([x.lat,x.lng], Math.max(map.getZoom(),13)); } };
+  map.on('click', e => { if(addMode) { addLocation(e.latlng.lat,e.latlng.lng); addMode=false; $('addModeBtn').textContent='＋ Locatie toevoegen'; } });
+  $('addModeBtn').onclick = () => { addMode=!addMode; $('addModeBtn').textContent=addMode?'Tik op de kaart…':'＋ Locatie toevoegen'; };
+  $('filter').onchange = render;
+  $('search').oninput = render;
+  $('locateBtn').onclick = () => {
+    if (!navigator.geolocation) return alert('Locatiebepaling wordt niet ondersteund.');
+    navigator.geolocation.getCurrentPosition(p => map.setView([p.coords.latitude,p.coords.longitude],13), () => alert('Je locatie kon niet worden bepaald. Controleer de locatietoestemming.'));
+  };
+  $('exportBtn').onclick = () => {
+    const blob = new Blob([JSON.stringify(locations,null,2)], {type:'application/json'});
+    const url = URL.createObjectURL(blob); const a=document.createElement('a'); a.href=url; a.download='mijn-afstreepkaart-backup.json'; a.click(); URL.revokeObjectURL(url);
+  };
+  $('importBtn').onclick = () => $('importFile').click();
+  $('importFile').onchange = async e => {
+    const file=e.target.files[0]; if(!file) return;
+    try { const data=JSON.parse(await file.text()); if(!Array.isArray(data) || !data.every(x=>x.name && Number.isFinite(x.lat) && Number.isFinite(x.lng))) throw new Error(); if(!confirm('Importeren en huidige locaties vervangen?')) return; locations=data; save(); alert('Back-up geïmporteerd.'); }
+    catch { alert('Dit bestand lijkt geen geldige back-up van Mijn Afstreepkaart.'); }
+    e.target.value='';
+  };
+  if ('serviceWorker' in navigator && location.protocol.startsWith('http')) navigator.serviceWorker.register('./sw.js').catch(()=>{});
+  render();
+})();
+</script>
+</body>
+</html>
