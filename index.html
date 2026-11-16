@@ -102,8 +102,24 @@
 
   function save() { localStorage.setItem(STORAGE_KEY, JSON.stringify(locations)); render(); }
   function markerIcon(done) {
-    return L.divIcon({ className:'', html:`<div class="marker-icon ${done?'marker-done':'marker-todo'}">${done?'✓':'×'}</div>`, iconSize:[30,30], iconAnchor:[15,15] });
-  }
+  return L.divIcon({
+    className: '',
+    html: `<div style="
+      font-size:30px;
+      width:36px;
+      height:36px;
+      display:flex;
+      align-items:center;
+      justify-content:center;
+      background:white;
+      border-radius:50%;
+      border:2px solid #19864b;
+      box-shadow:0 1px 5px #0005;
+    ">🎄</div>`,
+    iconSize: [36,36],
+    iconAnchor: [18,18]
+  });
+}
   function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
   function toggleDone(id) {
     const item = locations.find(x => x.id === id);
@@ -125,12 +141,18 @@
     locations = locations.filter(x => x.id !== id); save();
   }
   function addLocation(lat, lng) {
-    const name = prompt('Hoe heet deze locatie?');
-    if (!name || !name.trim()) return;
-    const note = prompt('Notitie (optioneel):') || '';
-    locations.push({ id: (crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random())), name:name.trim(), note:note.trim(), lat, lng, done:false, created:new Date().toISOString() });
-    save();
-  }
+  locations.push({
+    id: crypto.randomUUID ? crypto.randomUUID() : String(Date.now()+Math.random()),
+    name: 'Kerstboom',
+    note: '',
+    lat: lat,
+    lng: lng,
+    done: false,
+    created: new Date().toISOString()
+  });
+
+  save();
+}
   function render() {
     $('totalCount').textContent = locations.length;
     $('doneCount').textContent = locations.filter(x=>x.done).length;
